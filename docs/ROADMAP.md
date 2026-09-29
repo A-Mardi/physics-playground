@@ -1,24 +1,15 @@
 # Roadmap
 
-This is planned work, not a list of delivered features.
+## Shipped in 0.1.0 beta
 
-## Foundation
+Custom circle/box engine, WASM build, five presets, scene editing, live measurements, fixed-step playback, persistence, JSON import/export, native/WASM/browser tests.
 
-- [x] Create a runnable React + TypeScript starter.
-- [x] Add language-specific starter code and build checks.
-- [x] Document setup, scope, and component boundaries.
+## Next useful improvements
 
-## First useful release
+1. Replace approximate box contact points with face clipping; add adversarial stack/contact tests.
+2. Add continuous collision tests for fast small bodies and a tunneling demonstration.
+3. Add undo/redo and shareable scene files with thumbnail previews.
+4. Profile dense piles and low-power devices before introducing workers or sleeping bodies.
+5. Improve keyboard-only scene manipulation and provide a text description of scene contents.
 
-- [ ] Implement fixed-step integration for circles and boxes.
-- [ ] Add collision detection, spatial partitioning, and response.
-- [ ] Build scene editing, pause, stepping, and saved scenes.
-- [ ] Compile the engine to WebAssembly and benchmark large scenes.
-
-## Release evidence
-
-- [ ] Exercise the complete workflow on realistic inputs.
-- [ ] Add tests for core behavior and meaningful failure cases.
-- [ ] Publish reproducible benchmarks with hardware, inputs, and methodology.
-- [ ] Check keyboard use, empty states, progress, cancellation, and errors.
-- [ ] Record an accurate demo and update the README with implemented features.
+The canvas currently requires a pointer for placement and dragging. Responsive layout does not imply complete nonvisual accessibility.

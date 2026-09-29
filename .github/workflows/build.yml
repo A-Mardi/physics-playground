@@ -7,11 +7,8 @@ on:
 permissions:
   contents: read
 jobs:
-  web:
+  wasm-and-browser:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -19,12 +16,28 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - run: npm ci
-      - run: npm run build
-  core:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned Emscripten SDK
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          "$RUNNER_TEMP/emsdk/emsdk" install 6.0.10
+          "$RUNNER_TEMP/emsdk/emsdk" activate 6.0.10
+      - name: Rebuild and test WASM
+        env:
+          EMSDK: ${{ runner.temp }}/emsdk
+        run: |
+          node scripts/build-engine.mjs
+          node scripts/test-engine.mjs
+      - run: npm ci --prefix web
+      - run: npm run build --prefix web
+      - run: npx --prefix web playwright install --with-deps chromium
+      - run: npm test --prefix web
+  native:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: cmake -S core -B core/build -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build core/build --parallel
-      - run: ./core/build/core-info
+      - run: ctest --test-dir core/build --output-on-failure
