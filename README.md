@@ -28,6 +28,8 @@ Open **http://127.0.0.1:5175**. Choose **Chain reaction**, pause, and advance a 
 - Local scene persistence and validated JSON import/export, including body velocities.
 - Responsive controls and keyboard shortcuts: **Space** pauses, **1–5** selects a tool, **Delete** removes a selected body.
 
+The interface uses three base colors: warm off-white, charcoal, and sage. Choose a scene from the top dropdown and use the bottom toolbar to create shapes or control playback. **Settings** contains world controls, the selected-body inspector, and expandable performance details. The **•••** menu contains save, restore, import, and export actions. Both menus work on mobile and dismiss with Escape or a click outside.
+
 ## Engineering
 
 The engine is implemented in C++, rather than wrapping a physics library. A uniform grid produces candidate pairs; circle tests and oriented-box separating-axis tests generate contacts. An iterative impulse solver includes angular inertia and Coulomb-style friction.

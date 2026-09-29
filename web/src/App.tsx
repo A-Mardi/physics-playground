@@ -3,58 +3,31 @@ import { loadEngine, readBodies, preset, presets, WIDTH, HEIGHT } from './engine
 import type { Body, Engine } from './engine';
 
 type Tool = 'select' | 'circle' | 'box' | 'platform' | 'erase';
-const colors = ['#83e8c1', '#8ab8ef', '#e9b477', '#bd9cea', '#ec919c'];
-const tools: { id: Tool; symbol: string; label: string }[] = [
-  { id: 'select', symbol: '↖', label: 'Select' },
-  { id: 'circle', symbol: '○', label: 'Circle' },
-  { id: 'box', symbol: '□', label: 'Box' },
-  { id: 'platform', symbol: '╱', label: 'Platform' },
-  { id: 'erase', symbol: '⌫', label: 'Erase' },
+const tools: { id: Tool; label: string }[] = [
+  { id: 'select', label: 'Select' },
+  { id: 'circle', label: 'Circle' },
+  { id: 'box', label: 'Box' },
+  { id: 'platform', label: 'Platform' },
+  { id: 'erase', label: 'Erase' },
 ];
 const initialMetrics = { fps: 0, step: 0, count: 0, contacts: 0, candidates: 0 };
 
-function MiniScene({ kind }: { kind: string }) {
+function ToolIcon({ tool }: { tool: Tool }) {
   return (
-    <svg viewBox="0 0 64 44" aria-hidden="true">
-      <path d="M4 38H60" stroke="#455751" />
-      {kind === 'domino' ? (
-        Array.from({ length: 6 }, (_, i) => (
-          <rect
-            key={i}
-            x={10 + i * 8}
-            y={12}
-            width="4"
-            height="25"
-            rx="1"
-            fill={colors[i % 5]}
-            transform={i === 0 ? 'rotate(14 10 37)' : undefined}
-          />
-        ))
-      ) : kind === 'stack' ? (
-        Array.from({ length: 6 }, (_, i) => (
-          <rect
-            key={i}
-            x={i < 3 ? 12 + i * 13 : i < 5 ? 18 + (i - 3) * 13 : 25}
-            y={i < 3 ? 27 : i < 5 ? 15 : 3}
-            width="11"
-            height="10"
-            rx="2"
-            fill={colors[i % 5]}
-          />
-        ))
-      ) : kind === 'empty' ? (
-        <path d="M32 13v18m-9-9h18" stroke="#83e8c1" />
-      ) : (
-        Array.from({ length: kind === 'rain' ? 12 : 5 }, (_, i) => (
-          <circle
-            key={i}
-            cx={10 + (i % 4) * 14}
-            cy={8 + Math.floor(i / 4) * 13}
-            r={kind === 'rain' ? 3 : 5}
-            fill={colors[i % 5]}
-          />
-        ))
-      )}
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {tool === 'select' && <path d="m4 3 12 7-6 1-3 6z" />}
+      {tool === 'circle' && <circle cx="10" cy="10" r="6.5" />}
+      {tool === 'box' && <rect x="4" y="4" width="12" height="12" rx="1" />}
+      {tool === 'platform' && <path d="m3 15 14-10M4 17l1-3m3 1 1-3m3 1 1-3m3 1 1-3" />}
+      {tool === 'erase' && <path d="m3 12 8-8 6 6-7 7H8zM7 8l6 6M10 17h7" />}
     </svg>
   );
 }
@@ -63,6 +36,10 @@ export default function App() {
   const engine = useRef<Engine | null>(null),
     canvas = useRef<HTMLCanvasElement>(null),
     input = useRef<HTMLInputElement>(null);
+  const [panel, setPanel] = useState<'settings' | 'scene' | null>(null);
+  const panelAnchor = useRef<HTMLDivElement>(null);
+  const settingsButton = useRef<HTMLButtonElement>(null);
+  const sceneButton = useRef<HTMLButtonElement>(null);
   const [ready, setReady] = useState(false),
     [error, setError] = useState(''),
     [running, setRunning] = useState(true),
@@ -76,11 +53,30 @@ export default function App() {
     [debug, setDebug] = useState(false);
   const [metrics, setMetrics] = useState(initialMetrics),
     [selected, setSelected] = useState<Body | null>(null),
-    [notice, setNotice] = useState('Drag a body. Add a shape. See what happens.');
+    [notice, setNotice] = useState('Drag a shape to move it.');
   const live = useRef({ running, tool, speed, debug, size, selected: -1 });
   live.current = { running, tool, speed, debug, size, selected: selected?.id ?? -1 };
   const drag = useRef<{ id: number; dx: number; dy: number; angle: number } | null>(null);
   const pointer = useRef<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    if (!panel) return;
+    const close = (event: PointerEvent) => {
+      if (!panelAnchor.current?.contains(event.target as Node)) setPanel(null);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setPanel(null);
+        (panel === 'settings' ? settingsButton : sceneButton).current?.focus();
+      }
+    };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('keydown', escape);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('keydown', escape);
+    };
+  }, [panel]);
 
   useEffect(() => {
     let disposed = false,
@@ -132,18 +128,11 @@ export default function App() {
               ox = (w - WIDTH * scale) / 2,
               oy = (h - HEIGHT * scale) / 2;
             ctx.setTransform(scale, 0, 0, scale, ox, oy);
-            ctx.fillStyle = '#17211f';
+            ctx.fillStyle = '#f7f7f2';
             ctx.fillRect(0, 0, WIDTH, HEIGHT);
-            ctx.fillStyle = '#304039';
-            for (let x = 20; x < WIDTH; x += 40)
-              for (let y = 20; y < HEIGHT; y += 40) {
-                ctx.beginPath();
-                ctx.arc(x, y, 1.3, 0, Math.PI * 2);
-                ctx.fill();
-              }
-            ctx.fillStyle = '#26372f';
+            ctx.fillStyle = '#263c3206';
             ctx.fillRect(0, 840, WIDTH, 40);
-            ctx.strokeStyle = '#40594b';
+            ctx.strokeStyle = '#263c321c';
             ctx.beginPath();
             ctx.moveTo(0, 840);
             ctx.lineTo(WIDTH, 840);
@@ -153,9 +142,8 @@ export default function App() {
               ctx.save();
               ctx.translate(b.x, b.y);
               ctx.rotate(b.angle);
-              ctx.fillStyle = b.fixed ? '#577264' : colors[b.id % colors.length];
-              ctx.strokeStyle =
-                b.id === live.current.selected ? '#ffffff' : b.fixed ? '#839c8e' : '#ffffff38';
+              ctx.fillStyle = b.fixed ? '#263c32' : '#9fbaa8';
+              ctx.strokeStyle = b.id === live.current.selected ? '#263c32' : '#263c3210';
               ctx.lineWidth = b.id === live.current.selected ? 3 : 1.5;
               ctx.beginPath();
               if (b.shape === 0) ctx.arc(0, 0, b.w / 2, 0, Math.PI * 2);
@@ -163,7 +151,7 @@ export default function App() {
               ctx.fill();
               ctx.stroke();
               if (b.shape === 0) {
-                ctx.strokeStyle = '#16251e44';
+                ctx.strokeStyle = '#263c3244';
                 ctx.lineWidth = 2;
                 ctx.beginPath();
                 ctx.moveTo(b.w * 0.16, 0);
@@ -171,7 +159,7 @@ export default function App() {
                 ctx.stroke();
               }
               if (b.fixed) {
-                ctx.strokeStyle = '#a1b4a560';
+                ctx.strokeStyle = '#f7f7f240';
                 ctx.lineWidth = 1;
                 for (let x = -b.w / 2 + 10; x < b.w / 2; x += 16) {
                   ctx.beginPath();
@@ -182,7 +170,7 @@ export default function App() {
               }
               ctx.restore();
               if (live.current.debug && !b.fixed) {
-                ctx.strokeStyle = '#f5cf74';
+                ctx.strokeStyle = '#263c32';
                 ctx.lineWidth = 1.5;
                 ctx.beginPath();
                 ctx.moveTo(b.x, b.y);
@@ -196,7 +184,7 @@ export default function App() {
               live.current.tool !== 'erase'
             ) {
               const { x, y } = pointer.current;
-              ctx.strokeStyle = '#c2fce3';
+              ctx.strokeStyle = '#263c32';
               ctx.setLineDash([5, 5]);
               ctx.lineWidth = 2;
               ctx.beginPath();
@@ -394,360 +382,378 @@ export default function App() {
     }
   }
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-ready={ready}>
       <header className="topbar">
-        <div className="brand">
-          <span className="brand-icon">◒</span>
-          <div>
-            <strong>
-              KINETIC<span className="beta">BETA</span>
-            </strong>
-            <small>Physics playground</small>
-          </div>
-        </div>
-        <div className="top-actions">
-          <span className="engine-status">
-            <i className={ready ? 'online' : ''} />
-            {ready ? 'C++ engine ready' : 'Loading engine'}
-          </span>
-          <button onClick={() => save()} disabled={!ready}>
-            Save scene
-          </button>
-          <button className="outline" onClick={() => save(true)} disabled={!ready}>
-            Export ↗
-          </button>
-          <a
-            href="https://github.com/A-Mardi/physics-playground"
-            target="_blank"
-            rel="noreferrer"
-            aria-label="View source on GitHub"
-          >
-            Source ↗
-          </a>
-        </div>
-      </header>
-      <div className="workspace">
-        <aside className="sidebar">
-          <div className="section-label">
-            THE EXPERIMENTS <span>05</span>
-          </div>
-          <h2>A world in motion.</h2>
-          <p className="sidebar-intro">
-            Start with a scene.
-            <br />
-            Follow your curiosity.
-          </p>
-          <div className="scene-list">
-            {presets.map((p) => (
-              <button
-                className={'scene-card ' + (scene === p.id ? 'active' : '')}
-                onClick={() => loadScene(p.id)}
-                disabled={!ready}
-                key={p.id}
-              >
-                <MiniScene kind={p.id} />
-                <span>
-                  <strong>{p.name}</strong>
-                  <small>{p.description}</small>
-                </span>
-              </button>
-            ))}
-          </div>
-          <div className="environment">
-            <div className="section-label">WORLD SETTINGS</div>
-            <label>
-              Gravity <output>{gravity} px/s²</output>
-              <input
-                aria-label="Gravity"
-                type="range"
-                min="0"
-                max="1600"
-                step="20"
-                value={gravity}
-                onChange={(e) => setGravity(+e.target.value)}
-              />
-            </label>
-            <label>
-              Bounce <output>{Math.round(bounce * 100)}%</output>
-              <input
-                aria-label="Bounce"
-                type="range"
-                min="0"
-                max="1"
-                step=".05"
-                value={bounce}
-                onChange={(e) => setBounce(+e.target.value)}
-              />
-            </label>
-            <label>
-              Friction <output>{Math.round(friction * 100)}%</output>
-              <input
-                aria-label="Friction"
-                type="range"
-                min="0"
-                max="1"
-                step=".05"
-                value={friction}
-                onChange={(e) => setFriction(+e.target.value)}
-              />
-            </label>
-          </div>
+        <h1 className="brand">
+          <span aria-hidden="true">◒</span> kinetic
+        </h1>
+        <select
+          className="scene-select"
+          aria-label="Scene"
+          value={scene}
+          onChange={(e) => loadScene(e.target.value)}
+          disabled={!ready}
+        >
+          {presets.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+          {scene === 'custom' && <option value="custom">Your experiment</option>}
+        </select>
+        <div className="panel-anchor" ref={panelAnchor}>
           <button
-            className="subtle"
-            onClick={() => {
-              try {
-                const saved = localStorage.getItem('kinetic.scene.v1');
-                if (saved) restore(saved);
-                else setNotice('No saved scene yet. Use Save scene first.');
-              } catch {
-                setNotice('Local storage is unavailable.');
-              }
-            }}
+            ref={settingsButton}
+            className="settings-trigger"
+            aria-expanded={panel === 'settings'}
+            aria-controls="settings-panel"
+            onClick={() => setPanel(panel === 'settings' ? null : 'settings')}
+            disabled={!ready}
           >
-            ↺ Restore saved scene
+            Settings
           </button>
-          <button className="subtle" onClick={() => input.current?.click()}>
-            ↑ Import scene JSON
+          <button
+            ref={sceneButton}
+            className="icon-button"
+            aria-label="Scene options"
+            aria-expanded={panel === 'scene'}
+            aria-controls="scene-panel"
+            onClick={() => setPanel(panel === 'scene' ? null : 'scene')}
+            disabled={!ready}
+          >
+            <span aria-hidden="true">•••</span>
           </button>
-          <input
-            ref={input}
-            type="file"
-            accept=".json"
-            hidden
-            onChange={async (e) => {
-              const f = e.target.files?.[0];
-              if (f) {
-                if (f.size > 500000) setNotice('Scene file is too large.');
-                else restore(await f.text());
-              }
-              e.target.value = '';
-            }}
-          />
-        </aside>
-        <main className="stage">
-          <div className="stage-heading">
-            <div>
-              <span className="section-label">YOUR SANDBOX</span>
-              <h1>{presets.find((p) => p.id === scene)?.name ?? 'Your experiment'}</h1>
-            </div>
-            <div className="transport">
+          {panel === 'scene' && (
+            <section id="scene-panel" className="popover scene-menu" aria-label="Scene options">
               <button
-                aria-label="Reset scene"
-                title="Reset scene"
-                onClick={() => loadScene(scene === 'custom' ? 'empty' : scene)}
-                disabled={!ready}
-              >
-                ↺
-              </button>
-              <button
-                aria-label="Step simulation"
-                title="Advance one fixed step"
                 onClick={() => {
-                  setRunning(false);
-                  engine.current?._world_step(1 / 120);
+                  save();
+                  setPanel(null);
                 }}
-                disabled={!ready}
               >
-                ▹│
+                Save scene <span>On this device</span>
               </button>
-              <button className="play" onClick={() => setRunning((v) => !v)} disabled={!ready}>
-                {running ? 'Ⅱ Pause' : '▶ Play'}
-              </button>
-              <select
-                aria-label="Simulation speed"
-                value={speed}
-                onChange={(e) => setSpeed(+e.target.value)}
+              <button
+                onClick={() => {
+                  try {
+                    const saved = localStorage.getItem('kinetic.scene.v1');
+                    if (saved) restore(saved);
+                    else setNotice('No saved scene yet.');
+                  } catch {
+                    setNotice('Local storage is unavailable.');
+                  }
+                  setPanel(null);
+                }}
               >
-                <option value=".25">0.25×</option>
-                <option value=".5">0.5×</option>
-                <option value="1">1×</option>
-                <option value="2">2×</option>
-              </select>
-            </div>
-          </div>
-          <div className="canvas-wrap">
-            <div className="canvas-label">
-              <span className={running ? 'live-dot' : 'paused-dot'} />
-              {running ? 'SIMULATING' : 'PAUSED'}
-              <span className="canvas-coordinate">1400 × 880 world</span>
-            </div>
-            {error ? (
-              <div className="engine-error" role="alert">
-                {error}
-              </div>
-            ) : (
-              <canvas
-                ref={canvas}
-                aria-label="Interactive physics scene. Choose a shape, then click to add it. Select and drag existing bodies."
-                onPointerDown={down}
-                onPointerMove={(event) => {
-                  const p = coordinates(event);
-                  pointer.current = p;
-                  const d = drag.current;
-                  if (d) engine.current?._body_move(d.id, p.x + d.dx, p.y + d.dy, d.angle);
+                Restore saved scene
+              </button>
+              <div className="menu-divider" />
+              <button
+                onClick={() => {
+                  save(true);
+                  setPanel(null);
                 }}
-                onPointerUp={(event) => {
-                  drag.current = null;
-                  if (event.currentTarget.hasPointerCapture(event.pointerId))
-                    event.currentTarget.releasePointerCapture(event.pointerId);
+              >
+                Export JSON <span>↗</span>
+              </button>
+              <button
+                onClick={() => {
+                  input.current?.click();
+                  setPanel(null);
                 }}
-                onPointerCancel={() => {
-                  drag.current = null;
-                }}
-                onPointerLeave={() => {
-                  pointer.current = null;
-                }}
-              />
-            )}
-            <div className="floating-tools" aria-label="Scene tools">
-              {tools.map((t, i) => (
+              >
+                Import JSON <span>↙</span>
+              </button>
+              <div className="menu-divider" />
+              <a
+                href="https://github.com/A-Mardi/physics-playground"
+                target="_blank"
+                rel="noreferrer"
+              >
+                View source <span>↗</span>
+              </a>
+            </section>
+          )}
+          {panel === 'settings' && (
+            <section
+              id="settings-panel"
+              className="popover settings-panel"
+              aria-label="World settings"
+            >
+              <div className="panel-heading">
+                <h2>Settings</h2>
                 <button
-                  key={t.id}
-                  aria-pressed={tool === t.id}
-                  className={tool === t.id ? 'chosen' : ''}
-                  onClick={() => setTool(t.id)}
-                  title={`${t.label} (${i + 1})`}
-                >
-                  <b>{t.symbol}</b>
-                  <span>{t.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="stage-bottom">
-            <span role="status">{notice}</span>
-            <span>
-              <kbd>SPACE</kbd> pause <kbd>1–5</kbd> tools <kbd>DEL</kbd> remove
-            </span>
-          </div>
-        </main>
-        <aside className="inspector">
-          <div className="section-label">
-            LIVE TELEMETRY <i className="online" />
-          </div>
-          <div className="big-metric">
-            <strong>{metrics.count}</strong>
-            <span>bodies in scene</span>
-          </div>
-          <div className="metric-grid">
-            <div>
-              <strong>
-                {metrics.fps}
-                <small> fps</small>
-              </strong>
-              <span>Render rate</span>
-            </div>
-            <div>
-              <strong>
-                {metrics.step.toFixed(2)}
-                <small> ms</small>
-              </strong>
-              <span>Mean physics step</span>
-            </div>
-            <div>
-              <strong>{metrics.contacts}</strong>
-              <span>Contact pairs</span>
-            </div>
-            <div>
-              <strong>{metrics.candidates}</strong>
-              <span>Candidate pairs</span>
-            </div>
-          </div>
-          <p className="metric-note">
-            Live measurements on your device.
-            <br />
-            Fixed simulation step: 120 Hz.
-          </p>
-          <label className="toggle">
-            <input type="checkbox" checked={debug} onChange={(e) => setDebug(e.target.checked)} />{' '}
-            Show velocity vectors
-          </label>
-          <div className="inspector-section">
-            <div className="section-label">CREATE A BODY</div>
-            <label>
-              Size <output>{size} px</output>
-              <input
-                aria-label="Body size"
-                type="range"
-                min="16"
-                max="110"
-                step="2"
-                value={size}
-                onChange={(e) => setSize(+e.target.value)}
-              />
-            </label>
-            <p>Select a shape in the toolbar, then click anywhere in the scene.</p>
-          </div>
-          <div className="inspector-section">
-            <div className="section-label">{selected ? 'SELECTED BODY' : 'BODY INSPECTOR'}</div>
-            {selected ? (
-              <>
-                <h3>
-                  {selected.fixed ? 'Static platform' : selected.shape === 0 ? 'Circle' : 'Box'}{' '}
-                  <span>#{selected.id}</span>
-                </h3>
-                <dl>
-                  <dt>Position</dt>
-                  <dd>
-                    {Math.round(selected.x)}, {Math.round(selected.y)}
-                  </dd>
-                  <dt>Speed</dt>
-                  <dd>{Math.round(Math.hypot(selected.vx, selected.vy))} px/s</dd>
-                  <dt>Angle</dt>
-                  <dd>{Math.round((selected.angle * 180) / Math.PI)}°</dd>
-                </dl>
-                <label>
-                  Rotation{' '}
-                  <input
-                    aria-label="Body rotation"
-                    type="range"
-                    min="-180"
-                    max="180"
-                    value={Math.round((selected.angle * 180) / Math.PI)}
-                    onChange={(event) => {
-                      engine.current?._body_move(
-                        selected.id,
-                        selected.x,
-                        selected.y,
-                        (+event.target.value * Math.PI) / 180,
-                      );
-                      setSelected({ ...selected, angle: (+event.target.value * Math.PI) / 180 });
-                    }}
-                  />
-                </label>
-                <button
-                  className="delete"
+                  className="icon-button"
+                  aria-label="Close settings"
                   onClick={() => {
-                    engine.current?._body_remove(selected.id);
-                    setSelected(null);
+                    setPanel(null);
+                    settingsButton.current?.focus();
                   }}
                 >
-                  Remove body
+                  ×
                 </button>
-              </>
-            ) : (
-              <div className="empty-inspector">
-                <span>↖</span>
-                <p>
-                  Select a body to inspect
-                  <br />
-                  its position and motion.
-                </p>
               </div>
-            )}
+              <label>
+                Gravity <output>{gravity} px/s²</output>
+                <input
+                  aria-label="Gravity"
+                  type="range"
+                  min="0"
+                  max="1600"
+                  step="20"
+                  value={gravity}
+                  onChange={(e) => setGravity(+e.target.value)}
+                />
+              </label>
+              <label>
+                Bounce <output>{Math.round(bounce * 100)}%</output>
+                <input
+                  aria-label="Bounce"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step=".05"
+                  value={bounce}
+                  onChange={(e) => setBounce(+e.target.value)}
+                />
+              </label>
+              <label>
+                Friction <output>{Math.round(friction * 100)}%</output>
+                <input
+                  aria-label="Friction"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step=".05"
+                  value={friction}
+                  onChange={(e) => setFriction(+e.target.value)}
+                />
+              </label>
+              <label>
+                New body size <output>{size} px</output>
+                <input
+                  aria-label="Body size"
+                  type="range"
+                  min="16"
+                  max="110"
+                  step="2"
+                  value={size}
+                  onChange={(e) => setSize(+e.target.value)}
+                />
+              </label>
+              <label className="inline-label">
+                Speed{' '}
+                <select
+                  aria-label="Simulation speed"
+                  value={speed}
+                  onChange={(e) => setSpeed(+e.target.value)}
+                >
+                  <option value=".25">0.25×</option>
+                  <option value=".5">0.5×</option>
+                  <option value="1">1×</option>
+                  <option value="2">2×</option>
+                </select>
+              </label>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={debug}
+                  onChange={(e) => setDebug(e.target.checked)}
+                />{' '}
+                Velocity vectors
+              </label>
+              {selected && (
+                <details className="detail-section" open>
+                  <summary>
+                    Selected {selected.fixed ? 'platform' : selected.shape === 0 ? 'circle' : 'box'}
+                  </summary>
+                  <dl>
+                    <dt>Position</dt>
+                    <dd>
+                      {Math.round(selected.x)}, {Math.round(selected.y)}
+                    </dd>
+                    <dt>Speed</dt>
+                    <dd>{Math.round(Math.hypot(selected.vx, selected.vy))} px/s</dd>
+                  </dl>
+                  <label>
+                    Rotation <output>{Math.round((selected.angle * 180) / Math.PI)}°</output>
+                    <input
+                      aria-label="Body rotation"
+                      type="range"
+                      min="-180"
+                      max="180"
+                      value={Math.round((selected.angle * 180) / Math.PI)}
+                      onChange={(event) => {
+                        engine.current?._body_move(
+                          selected.id,
+                          selected.x,
+                          selected.y,
+                          (+event.target.value * Math.PI) / 180,
+                        );
+                        setSelected({ ...selected, angle: (+event.target.value * Math.PI) / 180 });
+                      }}
+                    />
+                  </label>
+                  <button
+                    className="remove-button"
+                    onClick={() => {
+                      engine.current?._body_remove(selected.id);
+                      setSelected(null);
+                    }}
+                  >
+                    Remove body
+                  </button>
+                </details>
+              )}
+              <details className="detail-section">
+                <summary>Performance</summary>
+                <dl>
+                  <dt>Render rate</dt>
+                  <dd>{metrics.fps} fps</dd>
+                  <dt>Mean physics step</dt>
+                  <dd>{metrics.step.toFixed(2)} ms</dd>
+                  <dt>Contact pairs</dt>
+                  <dd>{metrics.contacts}</dd>
+                  <dt>Candidate pairs</dt>
+                  <dd>{metrics.candidates}</dd>
+                </dl>
+                <p>120 Hz fixed step · C++ / WebAssembly</p>
+              </details>
+            </section>
+          )}
+        </div>
+      </header>
+      <input
+        ref={input}
+        type="file"
+        accept=".json"
+        hidden
+        onChange={async (e) => {
+          const f = e.target.files?.[0];
+          if (f) {
+            if (f.size > 500000) setNotice('Scene file is too large.');
+            else restore(await f.text());
+          }
+          e.target.value = '';
+        }}
+      />
+      <main className="stage" aria-label="Physics playground">
+        {error ? (
+          <div className="engine-error" role="alert">
+            {error}
           </div>
-          <div className="engine-credit">
-            <span>BUILT TO BE EXPLORED</span>
-            <p>
-              Custom C++ physics.
-              <br />
-              WebAssembly execution.
-              <br />
-              No server required.
-            </p>
+        ) : (
+          <canvas
+            ref={canvas}
+            aria-label="Interactive physics scene. Choose a shape, then click to add it. Select and drag existing bodies."
+            onPointerDown={down}
+            onPointerMove={(event) => {
+              const p = coordinates(event);
+              pointer.current = p;
+              const d = drag.current;
+              if (d) engine.current?._body_move(d.id, p.x + d.dx, p.y + d.dy, d.angle);
+            }}
+            onPointerUp={(event) => {
+              drag.current = null;
+              if (event.currentTarget.hasPointerCapture(event.pointerId))
+                event.currentTarget.releasePointerCapture(event.pointerId);
+            }}
+            onPointerCancel={() => {
+              drag.current = null;
+            }}
+            onPointerLeave={() => {
+              pointer.current = null;
+            }}
+          />
+        )}
+        {!ready && !error && (
+          <div className="loading-note" role="status">
+            Loading playground…
           </div>
-        </aside>
-      </div>
+        )}
+      </main>
+      <nav className="toolbar" aria-label="Playground controls">
+        <div className="tool-group" aria-label="Scene tools">
+          {tools.map((t, i) => (
+            <button
+              key={t.id}
+              aria-label={t.label}
+              aria-pressed={tool === t.id}
+              className={'tool-button ' + (tool === t.id ? 'chosen' : '')}
+              onClick={() => setTool(t.id)}
+              title={t.label + ' (' + (i + 1) + ')'}
+              disabled={!ready}
+            >
+              <ToolIcon tool={t.id} />
+              <span className="tool-tip">{t.label}</span>
+            </button>
+          ))}
+        </div>
+        <span className="toolbar-divider" />
+        <div className="transport">
+          <button
+            className="play-button"
+            aria-label={running ? 'Pause' : 'Play'}
+            title={running ? 'Pause (Space)' : 'Play (Space)'}
+            onClick={() => setRunning((v) => !v)}
+            disabled={!ready}
+          >
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              {running ? (
+                <>
+                  <path d="M7 5v10M13 5v10" stroke="currentColor" strokeWidth="2" />
+                </>
+              ) : (
+                <path d="m7 4 9 6-9 6z" fill="currentColor" />
+              )}
+            </svg>
+          </button>
+          <button
+            className="tool-button"
+            aria-label="Step simulation"
+            title="Advance one step"
+            onClick={() => {
+              setRunning(false);
+              engine.current?._world_step(1 / 120);
+            }}
+            disabled={!ready}
+          >
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <path d="m5 5 7 5-7 5z" fill="currentColor" />
+              <path d="M15 5v10" stroke="currentColor" strokeWidth="1.5" />
+            </svg>
+          </button>
+          <button
+            className="tool-button"
+            aria-label="Reset scene"
+            title="Reset scene"
+            onClick={() => loadScene(scene === 'custom' ? 'empty' : scene)}
+            disabled={!ready}
+          >
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <path
+                d="M5 6a6 6 0 1 1-1 6M5 2v4h4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
+      </nav>
+      <footer className="stage-bottom">
+        <span role="status">{notice}</span>
+        <span className="keyboard-hint">Space to pause · 1–5 to switch tools</span>
+        <span className="scene-status">
+          <span className="status-dot" data-running={running} />
+          {running ? 'Running' : 'Paused'}
+          <span className="body-count" data-testid="body-count">
+            {metrics.count} {metrics.count === 1 ? 'body' : 'bodies'}
+          </span>
+        </span>
+      </footer>
     </div>
   );
 }
