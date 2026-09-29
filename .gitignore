@@ -17,3 +17,6 @@ Thumbs.db
 .idea/
 server/server
 server/server.exe
+test-results/
+playwright-report/
+.logs/
