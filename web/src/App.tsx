@@ -11,6 +11,13 @@ const tools: { id: Tool; label: string }[] = [
   { id: 'erase', label: 'Erase' },
 ];
 const initialMetrics = { fps: 0, step: 0, count: 0, contacts: 0, candidates: 0 };
+type SceneSnapshot = {
+  gravity: number;
+  bounce: number;
+  friction: number;
+  scene: string;
+  bodies: Body[];
+};
 
 function ToolIcon({ tool }: { tool: Tool }) {
   return (
@@ -56,8 +63,60 @@ export default function App() {
     [notice, setNotice] = useState('Drag a shape to move it.');
   const live = useRef({ running, tool, speed, debug, size, selected: -1 });
   live.current = { running, tool, speed, debug, size, selected: selected?.id ?? -1 };
-  const drag = useRef<{ id: number; dx: number; dy: number; angle: number } | null>(null);
+  const drag = useRef<{
+    id: number;
+    dx: number;
+    dy: number;
+    angle: number;
+    before: SceneSnapshot;
+    recorded: boolean;
+  } | null>(null);
   const pointer = useRef<{ x: number; y: number } | null>(null);
+  const edits = useRef<{ past: SceneSnapshot[]; future: SceneSnapshot[] }>({
+    past: [],
+    future: [],
+  });
+  const [, setHistoryRevision] = useState(0);
+  const environment = useRef({ gravity, bounce, friction, scene });
+  environment.current = { gravity, bounce, friction, scene };
+  function snapshot(): SceneSnapshot {
+    return {
+      ...environment.current,
+      bodies: engine.current ? readBodies(engine.current).filter((b) => b.id >= 4) : [],
+    };
+  }
+  function remember(before = snapshot()) {
+    if (!engine.current) return;
+    edits.current.past.push(before);
+    if (edits.current.past.length > 50) edits.current.past.shift();
+    edits.current.future = [];
+    setHistoryRevision((n) => n + 1);
+  }
+  function travel(direction: 'past' | 'future') {
+    const e = engine.current,
+      entry = edits.current[direction].pop();
+    if (!e || !entry) return;
+    edits.current[direction === 'past' ? 'future' : 'past'].push(snapshot());
+    drag.current = null;
+    live.current.running = false;
+    setRunning(false);
+    e._world_reset();
+    for (const body of entry.bodies) {
+      const id = e._body_add(body.shape, body.x, body.y, body.w, body.h, body.angle, body.fixed);
+      e._body_velocity(id, body.vx, body.vy, body.angular);
+    }
+    e._world_gravity(0, entry.gravity);
+    e._world_material(entry.bounce, entry.friction);
+    setGravity(entry.gravity);
+    setBounce(entry.bounce);
+    setFriction(entry.friction);
+    setScene(entry.scene);
+    environment.current = entry;
+    setSelected(null);
+    setMetrics((m) => ({ ...m, count: entry.bodies.length }));
+    setHistoryRevision((n) => n + 1);
+    setNotice((direction === 'past' ? 'Edit undone.' : 'Edit redone.') + ' Scene paused.');
+  }
 
   useEffect(() => {
     if (!panel) return;
@@ -235,7 +294,13 @@ export default function App() {
   }, [bounce, friction, ready]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if ((event.target as HTMLElement).matches('input,select,textarea,button')) return;
+      if ((event.target as HTMLElement).matches('input,select,textarea')) return;
+      if ((event.ctrlKey || event.metaKey) && ['z', 'y'].includes(event.key.toLowerCase())) {
+        event.preventDefault();
+        travel(event.shiftKey || event.key.toLowerCase() === 'y' ? 'future' : 'past');
+        return;
+      }
+      if ((event.target as HTMLElement).matches('button')) return;
       if (event.code === 'Space') {
         event.preventDefault();
         setRunning((v) => !v);
@@ -243,6 +308,7 @@ export default function App() {
       if (event.key === 'Delete' || event.key === 'Backspace') {
         if (live.current.selected >= 0) {
           event.preventDefault();
+          remember();
           engine.current?._body_remove(live.current.selected);
           setSelected(null);
         }
@@ -255,6 +321,7 @@ export default function App() {
   }, []);
   function loadScene(id: string) {
     if (!engine.current) return;
+    remember();
     preset(engine.current, id);
     engine.current._world_gravity(0, gravity);
     engine.current._world_material(bounce, friction);
@@ -279,6 +346,8 @@ export default function App() {
     if (tool === 'select' || tool === 'erase') {
       const id = e._body_pick(p.x, p.y);
       if (tool === 'erase') {
+        if (id < 4) return;
+        remember();
         e._body_remove(id);
         setSelected(null);
         return;
@@ -286,10 +355,18 @@ export default function App() {
       const b = readBodies(e).find((b) => b.id === id) ?? null;
       setSelected(b);
       if (b) {
-        drag.current = { id, dx: b.x - p.x, dy: b.y - p.y, angle: b.angle };
+        drag.current = {
+          id,
+          dx: b.x - p.x,
+          dy: b.y - p.y,
+          angle: b.angle,
+          before: snapshot(),
+          recorded: false,
+        };
         event.currentTarget.setPointerCapture(event.pointerId);
       }
     } else {
+      const before = snapshot();
       const id = e._body_add(
         tool === 'circle' ? 0 : 1,
         p.x,
@@ -301,6 +378,7 @@ export default function App() {
       );
       if (id < 0) setNotice('This scene has reached the 508-body limit.');
       else {
+        remember(before);
         setSelected(readBodies(e).find((b) => b.id === id) ?? null);
         setNotice('Body added. Switch to Select to move it.');
       }
@@ -359,6 +437,7 @@ export default function App() {
       }
       const e = engine.current;
       if (!e) return;
+      remember();
       e._world_reset();
       for (const b of value.bodies) {
         const id = e._body_add(b.shape, b.x, b.y, b.w, b.h, b.angle, b.fixed);
@@ -502,7 +581,10 @@ export default function App() {
                   max="1600"
                   step="20"
                   value={gravity}
-                  onChange={(e) => setGravity(+e.target.value)}
+                  onChange={(e) => {
+                    remember();
+                    setGravity(+e.target.value);
+                  }}
                 />
               </label>
               <label>
@@ -514,7 +596,10 @@ export default function App() {
                   max="1"
                   step=".05"
                   value={bounce}
-                  onChange={(e) => setBounce(+e.target.value)}
+                  onChange={(e) => {
+                    remember();
+                    setBounce(+e.target.value);
+                  }}
                 />
               </label>
               <label>
@@ -526,7 +611,10 @@ export default function App() {
                   max="1"
                   step=".05"
                   value={friction}
-                  onChange={(e) => setFriction(+e.target.value)}
+                  onChange={(e) => {
+                    remember();
+                    setFriction(+e.target.value);
+                  }}
                 />
               </label>
               <label>
@@ -584,6 +672,7 @@ export default function App() {
                       max="180"
                       value={Math.round((selected.angle * 180) / Math.PI)}
                       onChange={(event) => {
+                        remember();
                         engine.current?._body_move(
                           selected.id,
                           selected.x,
@@ -597,6 +686,7 @@ export default function App() {
                   <button
                     className="remove-button"
                     onClick={() => {
+                      remember();
                       engine.current?._body_remove(selected.id);
                       setSelected(null);
                     }}
@@ -651,7 +741,13 @@ export default function App() {
               const p = coordinates(event);
               pointer.current = p;
               const d = drag.current;
-              if (d) engine.current?._body_move(d.id, p.x + d.dx, p.y + d.dy, d.angle);
+              if (d) {
+                if (!d.recorded) {
+                  remember(d.before);
+                  d.recorded = true;
+                }
+                engine.current?._body_move(d.id, p.x + d.dx, p.y + d.dy, d.angle);
+              }
             }}
             onPointerUp={(event) => {
               drag.current = null;
@@ -692,6 +788,27 @@ export default function App() {
         <span className="toolbar-divider" />
         <div className="transport">
           <button
+            className="tool-button"
+            aria-label="Undo edit"
+            title="Undo edit (Ctrl/⌘ Z)"
+            disabled={!edits.current.past.length}
+            onClick={() => travel('past')}
+          >
+            ↶
+          </button>
+          <button
+            className="tool-button"
+            aria-label="Redo edit"
+            title="Redo edit (Ctrl/⌘ Shift Z)"
+            disabled={!edits.current.future.length}
+            onClick={() => travel('future')}
+          >
+            ↷
+          </button>
+        </div>
+        <span className="toolbar-divider" />
+        <div className="transport">
+          <button
             className="play-button"
             aria-label={running ? 'Pause' : 'Play'}
             title={running ? 'Pause (Space)' : 'Play (Space)'}
@@ -713,6 +830,7 @@ export default function App() {
             aria-label="Step simulation"
             title="Advance one step"
             onClick={() => {
+              remember();
               setRunning(false);
               engine.current?._world_step(1 / 120);
             }}

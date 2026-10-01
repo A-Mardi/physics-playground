@@ -453,3 +453,21 @@ dd {
     max-height: calc(100svh - 72px);
   }
 }
+@media (max-width: 640px) {
+  .app-shell {
+    grid-template-rows: 62px minmax(0, 1fr) 106px 58px;
+  }
+  .toolbar {
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 100%;
+    width: 280px;
+  }
+  .toolbar .tool-group {
+    flex-basis: 100%;
+    justify-content: center;
+  }
+  .toolbar-divider {
+    display: none;
+  }
+}

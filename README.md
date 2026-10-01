@@ -78,3 +78,7 @@ This is an educational rigid-body sandbox, not a scientific simulator. It suppor
 Saving is local to the current browser and origin; export JSON for a portable copy. No performance number is a guarantee for every device.
 
 [MIT license](LICENSE) · [Contributing](CONTRIBUTING.md) · [Next steps](docs/ROADMAP.md)
+
+### Undo and redo
+
+Undo/redo keeps up to 50 scene-edit checkpoints in this tab: creation, deletion, dragging, rotation, environment edits, preset/reset/import, and manual steps. It restores body positions and velocities as well as gravity and material settings, then pauses the scene. Use the toolbar or Ctrl/Command+Z and Ctrl/Command+Shift+Z (Ctrl+Y also works). New edits discard the redo branch. Continuous simulation frames are not recorded; history is not saved across reloads.
